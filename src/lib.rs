@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
+    io::{Error, Write},
 };
 
 #[derive(Debug)]
@@ -31,7 +32,7 @@ impl PartialEq for HuffManNode {
 
 impl Eq for HuffManNode {}
 
-pub fn build_frequency(content: String) -> HashMap<char, usize> {
+pub fn build_frequency(content: &String) -> HashMap<char, usize> {
     let mut freq_table = HashMap::new();
 
     for c in content.chars() {
@@ -85,5 +86,48 @@ pub fn build_huffman_codes(
             build_huffman_codes(huffman_codes, &node.left, format!("{}0", prefix));
             build_huffman_codes(huffman_codes, &node.right, format!("{}1", prefix));
         }
+    }
+}
+
+pub struct BitWriter<W: Write> {
+    writer: W,     // The output writer (buffered for performance)
+    buffer: u8,    // Accumulated bits (up to 8 bits = 1 byte)
+    bit_count: u8, // How many bits are currently in the buffer
+}
+
+impl<W: Write> BitWriter<W> {
+    pub fn new(writer: W) -> Self {
+        BitWriter {
+            writer,
+            buffer: 0,
+            bit_count: 0,
+        }
+    }
+
+    pub fn write_bit(&mut self, bit: bool) -> Result<(), Error> {
+        self.buffer <<= 1;
+        if bit {
+            self.buffer |= 1;
+        }
+        self.bit_count += 1;
+
+        if self.bit_count == 8 {
+            self.flush_buffer()?;
+        }
+        Ok(())
+    }
+
+    pub fn flush_buffer(&mut self) -> Result<(), Error> {
+        if self.bit_count > 0 {
+            self.buffer <<= 8 - self.bit_count;
+            self.writer.write_all(&[self.buffer])?;
+            self.buffer = 0;
+            self.bit_count = 0;
+        }
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<(), Error> {
+        self.flush_buffer()
     }
 }
