@@ -1,4 +1,6 @@
-use std::{collections::HashMap, env, fs::File, io::Read};
+use std::{env, fs::File, io::Read};
+
+use compression::{build_frequency, build_huffman_tree};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -14,13 +16,13 @@ fn main() {
     file.read_to_string(&mut content)
         .expect("could not read file");
 
-    let mut chars: HashMap<char, usize> = HashMap::new();
-
-    for c in content.chars() {
-        let count = chars.entry(c).or_insert(0);
-        *count += 1;
+    let chars = build_frequency(content);
+    let huffman_node = build_huffman_tree(chars);
+    let huffman_tree;
+    match huffman_node {
+        Some(node) => huffman_tree = node,
+        None => panic!("file is empty"),
     }
 
-    println!("X occurs {:?} times", chars.get(&'X'));
-    println!("t occurs {:?} times", chars.get(&'t'));
+    println!("{:?}", huffman_tree);
 }
