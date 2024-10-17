@@ -72,3 +72,18 @@ pub fn build_huffman_tree(chars: HashMap<char, usize>) -> Option<HuffManNode> {
 
     min_heap.pop()
 }
+
+pub fn build_huffman_codes(
+    huffman_codes: &mut HashMap<char, String>,
+    huffman_node: &Option<Box<HuffManNode>>,
+    prefix: String,
+) {
+    if let Some(node) = huffman_node {
+        if let Some(val) = node.val {
+            huffman_codes.insert(val, prefix);
+        } else {
+            build_huffman_codes(huffman_codes, &node.left, format!("{}0", prefix));
+            build_huffman_codes(huffman_codes, &node.right, format!("{}1", prefix));
+        }
+    }
+}
