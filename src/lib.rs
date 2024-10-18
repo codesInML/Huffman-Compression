@@ -5,6 +5,57 @@ use std::{
     io::{BufReader, BufWriter, Error, Read, Write},
 };
 
+pub enum Mode {
+    Compress,
+    Decompress,
+}
+
+pub struct Config {
+    mode: Mode,
+    input_file: String,
+    output_file: String,
+}
+
+impl Config {
+    pub fn new(args: Vec<String>) -> Result<Config, String> {
+        if args.len() < 4 {
+            return Err("Not enough arguments passed".to_string());
+        }
+
+        let mode = args[1].clone();
+
+        if mode != "C" && mode != "D" {
+            return Err("Invalid argument. Mode can only be C or D".to_string());
+        }
+
+        let mode = if mode == "C" {
+            Mode::Compress
+        } else {
+            Mode::Decompress
+        };
+
+        let config = Config {
+            mode,
+            input_file: args[2].clone(),
+            output_file: args[3].clone(),
+        };
+
+        Ok(config)
+    }
+
+    pub fn get_mode(&self) -> &Mode {
+        &self.mode
+    }
+
+    pub fn get_input_file(&self) -> &str {
+        &self.input_file
+    }
+
+    pub fn get_output_file(&self) -> &str {
+        &self.output_file
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HuffManNode {
     freq: usize,
@@ -32,6 +83,15 @@ impl PartialEq for HuffManNode {
 }
 
 impl Eq for HuffManNode {}
+
+pub fn read_file(filename: &str) -> Result<String, Error> {
+    let file = File::open(filename)?;
+    let mut reader = BufReader::new(file);
+    let mut content = String::new();
+    reader.read_to_string(&mut content)?;
+
+    Ok(content)
+}
 
 pub fn build_frequency(content: &String) -> HashMap<char, usize> {
     let mut freq_table = HashMap::new();
