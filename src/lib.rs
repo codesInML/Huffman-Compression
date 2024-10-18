@@ -1,10 +1,11 @@
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
-    io::{Error, Write},
+    fs::File,
+    io::{BufReader, BufWriter, Error, Read, Write},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HuffManNode {
     freq: usize,
     val: Option<char>,
@@ -89,45 +90,145 @@ pub fn build_huffman_codes(
     }
 }
 
-pub struct BitWriter<W: Write> {
-    writer: W,     // The output writer (buffered for performance)
-    buffer: u8,    // Accumulated bits (up to 8 bits = 1 byte)
-    bit_count: u8, // How many bits are currently in the buffer
+pub fn write_compressed_file(
+    root: &HuffManNode,
+    encoded_data: &str,
+    output_file: &str,
+) -> Result<(), Error> {
+    let file = File::create(output_file)?;
+    let mut writer = BufWriter::new(file);
+
+    let mut tree_string = String::new();
+    serialize_tree(root, &mut tree_string);
+
+    // Write the length of the serialized tree as a header
+    writer.write_all(&(tree_string.len() as u32).to_le_bytes())?;
+
+    // Write the serialized tree to the file
+    writer.write_all(tree_string.as_bytes())?;
+
+    // Write the compressed bit stream
+    let mut bit_buffer = 0u8;
+    let mut bit_count = 0;
+
+    for bit in encoded_data.chars() {
+        bit_buffer <<= 1;
+        if bit == '1' {
+            bit_buffer |= 1;
+        }
+        bit_count += 1;
+
+        if bit_count == 8 {
+            writer.write_all(&[bit_buffer])?;
+            bit_buffer = 0;
+            bit_count = 0;
+        }
+    }
+
+    // Write any remaining bits
+    if bit_count > 0 {
+        bit_buffer <<= 8 - bit_count;
+        writer.write_all(&[bit_buffer])?;
+    }
+
+    writer.flush()?;
+    Ok(())
 }
 
-impl<W: Write> BitWriter<W> {
-    pub fn new(writer: W) -> Self {
-        BitWriter {
-            writer,
-            buffer: 0,
-            bit_count: 0,
+pub fn serialize_tree(node: &HuffManNode, result: &mut String) {
+    if let Some(c) = node.val {
+        // 'L' indicates a leaf node
+        result.push('L');
+        result.push(c);
+    } else {
+        // 'I' indicates an internal node
+        result.push('I');
+        if let Some(left) = &node.left {
+            serialize_tree(left, result);
+        }
+        if let Some(right) = &node.right {
+            serialize_tree(right, result);
+        }
+    }
+}
+
+pub fn deserialize_tree<I>(chars: &mut I) -> Option<Box<HuffManNode>>
+where
+    I: Iterator<Item = char>,
+{
+    match chars.next() {
+        Some('L') => {
+            let c = chars.next().unwrap();
+            Some(Box::new(HuffManNode {
+                freq: 0,
+                val: Some(c),
+                left: None,
+                right: None,
+            }))
+        }
+        Some('I') => {
+            let left = deserialize_tree(chars);
+            let right = deserialize_tree(chars);
+            Some(Box::new(HuffManNode {
+                freq: 0,
+                val: None,
+                left,
+                right,
+            }))
+        }
+        _ => None,
+    }
+}
+
+pub fn read_compressed_file(input_file: &str) -> Result<(Box<HuffManNode>, Vec<u8>), Error> {
+    let file = File::open(input_file)?;
+    let mut reader = BufReader::new(file);
+
+    let mut length_buffer = [0u8; 4];
+    reader.read_exact(&mut length_buffer)?;
+    let tree_length = u32::from_le_bytes(length_buffer);
+
+    let mut tree_string = vec![0u8; tree_length as usize];
+    reader.read_exact(&mut tree_string)?;
+    let tree_string = String::from_utf8(tree_string).unwrap();
+
+    let tree = deserialize_tree(&mut tree_string.chars());
+
+    let mut bit_stream = Vec::new();
+    reader.read_to_end(&mut bit_stream)?;
+
+    Ok((tree.unwrap(), bit_stream))
+}
+
+pub fn decode_and_write_file(
+    root: &HuffManNode,
+    bit_stream: &[u8],
+    output_file: &str,
+) -> Result<(), Error> {
+    let mut writer = BufWriter::new(File::create(output_file)?);
+    let mut current_node = root;
+
+    let mut buffer = Vec::new();
+
+    for byte in bit_stream {
+        for i in (0..8).rev() {
+            let bit = (byte >> i) & 1;
+
+            current_node = if bit == 0 {
+                current_node.left.as_deref().unwrap()
+            } else {
+                current_node.right.as_deref().unwrap()
+            };
+
+            if let Some(c) = current_node.val {
+                buffer.push(c as u8);
+                current_node = root;
+            }
         }
     }
 
-    pub fn write_bit(&mut self, bit: bool) -> Result<(), Error> {
-        self.buffer <<= 1;
-        if bit {
-            self.buffer |= 1;
-        }
-        self.bit_count += 1;
+    writer.write_all(&buffer)?;
+    writer.flush()?;
 
-        if self.bit_count == 8 {
-            self.flush_buffer()?;
-        }
-        Ok(())
-    }
-
-    pub fn flush_buffer(&mut self) -> Result<(), Error> {
-        if self.bit_count > 0 {
-            self.buffer <<= 8 - self.bit_count;
-            self.writer.write_all(&[self.buffer])?;
-            self.buffer = 0;
-            self.bit_count = 0;
-        }
-        Ok(())
-    }
-
-    pub fn finish(mut self) -> Result<(), Error> {
-        self.flush_buffer()
-    }
+    Ok(())
 }
